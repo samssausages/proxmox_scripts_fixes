@@ -1,6 +1,8 @@
 #cloud-config
 
-# Import Docker PGP Key for install
+# Prep Steps:
+
+# import docker key
 write_files:
   - path: /usr/share/keyrings/docker.asc
     owner: root:root
@@ -69,41 +71,6 @@ write_files:
       =0YYh
       -----END PGP PUBLIC KEY BLOCK-----
 
-apt:
-  sources:
-    docker.list:
-      source: deb [arch=amd64 signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable
-
-package_update: true
-package_upgrade: true
-
-packages:
-  - docker-ce
-  - docker-ce-cli
-  - containerd.io
-  - docker-buildx-plugin
-  - docker-compose-plugin
-  - qemu-guest-agent
-  - rsyslog
-
-# create the docker group
-groups:
-  - docker
-
-# Add Authorized SSH Keys
-users:
-  - name: admin
-    groups: docker
-    home: /home/admin
-    shell: /bin/bash
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    ssh-authorized-keys:
-      - ssh-ed25519 fafdfaafd
-      - ssh-ed25519 fdafdfageg
-
-
-# Config apps
-write_files:
   - path: /etc/docker/daemon.json
     permissions: '0644'
     content: |
@@ -142,6 +109,42 @@ write_files:
   - path: /mnt/admin/docker-compose.yml
     permissions: '0644'
     content: |
+
+apt:
+  sources:
+    docker.list:
+      source: deb [arch=amd64 signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+  - qemu-guest-agent
+  - rsyslog
+  
+# create the docker group
+groups:
+  - docker
+
+users:
+  - name: admin
+    groups: docker
+    home: /home/admin
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh-authorized-keys:
+      - ssh-ed25519 Afdasgaga
+      - ssh-ed25519 Afadseawga
+
+# Add default auto created user to docker group
+system_info:
+  default_user:
+    groups: [docker]
 
 # Restart Services
 runcmd:
