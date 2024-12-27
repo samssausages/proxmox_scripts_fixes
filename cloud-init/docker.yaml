@@ -1,11 +1,6 @@
 #cloud-config
 
-# Prep Steps:
-
-
-
-# Debian does not contain gpg by default, so have to do this for the docker key
-# https://stackoverflow.com/questions/24418815/how-do-i-install-docker-using-cloud-init
+# Import Docker PGP Key for install
 write_files:
   - path: /usr/share/keyrings/docker.asc
     owner: root:root
@@ -74,7 +69,6 @@ write_files:
       =0YYh
       -----END PGP PUBLIC KEY BLOCK-----
 
-
 apt:
   sources:
     docker.list:
@@ -90,11 +84,13 @@ packages:
   - docker-buildx-plugin
   - docker-compose-plugin
   - qemu-guest-agent
+  - rsyslog
 
 # create the docker group
 groups:
   - docker
 
+# Add Authorized SSH Keys
 users:
   - name: admin
     groups: docker
@@ -102,16 +98,59 @@ users:
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh-authorized-keys:
-      - ssh-ed25519 Afdasgaga
-      - ssh-ed25519 Afadseawga
+      - ssh-ed25519 fafdfaafd
+      - ssh-ed25519 fdafdfageg
 
-# Add default auto created user to docker group
-system_info:
-  default_user:
-    groups: [docker]
 
+# Config apps
+write_files:
+  - path: /etc/docker/daemon.json
+    permissions: '0644'
+    content: |
+      {
+        "log-driver": "gelf",
+        "log-opts": {
+          "gelf-address": "tcp://10.1.100.15:12201",
+          "tag": "docker/{{.Name}}"
+        },
+        "max-concurrent-downloads": 24,
+        "max-concurrent-uploads": 8
+      }
+
+  - path: /etc/rsyslog.d/graylog.conf
+    permissions: '0644'
+    content: |
+      # provides TCP syslog reception
+      module(load="imtcp")
+      input(type="imtcp" port="5140")
+
+      # provides TCP forwarding
+      module(load="omfwd")
+
+      # journald
+      module(load="imjournal")
+
+      *.* @@10.1.100.15:5140;RSYSLOG_SyslogProtocol23Format
+
+  - path: /etc/systemd/journald.conf.d/forward-syslog.conf
+    permissions: '0644'
+    content: |
+      [Journal]
+      ForwardToSyslog=yes
+
+# Create a docker-compose file where you want it to live
+  - path: /mnt/admin/docker-compose.yml
+    permissions: '0644'
+    content: |
+
+# Restart Services
+runcmd:
+  - systemctl restart docker
+  - systemctl restart rsyslog
+  - systemctl restart systemd-journald
+
+# Example pulling and running a docker image using cloud-init
 # runcmd:
-#  # Example of pulling and running a docker image.
 #  - /usr/bin/sleep 10
 #  - /usr/bin/docker pull programster/some-image-name
 #  - /usr/bin/docker run -d -p 8000:80 --restart=always programster/some-image-name
