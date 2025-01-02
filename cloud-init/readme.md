@@ -11,7 +11,6 @@ Cloud init:
 - Configures Remote Logging for Docker to Graylog using GELF
 - Configures rsyslog with journald and forwards to Graylog server using rsyslog
 
-Also available without graylog.
 
 Note:
 Graylog integration needs logrotate added, so keep in mind that logs may grow large with current config.
