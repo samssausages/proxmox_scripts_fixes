@@ -1,10 +1,10 @@
 Cloud init:
 
-## Docker.yaml
+## Docker.yml
 - Installs Docker
 - Sets some reasonable defaults
   
-## Docker_graylog.yaml
+## Docker_graylog.yml
 
 - Installs Docker
 - Sets some reasonable defaults
