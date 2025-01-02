@@ -9,7 +9,7 @@ Cloud init:
 - Installs Docker
 - Sets some reasonable defaults
 - Configures Remote Logging for Docker to Graylog using GELF
-- Configures rsyslog with journald and forwards to Graylog server using rsyslog
+- Configures VM with rsyslog and forwards to Graylog server using rsyslog
 
 
 Note:
