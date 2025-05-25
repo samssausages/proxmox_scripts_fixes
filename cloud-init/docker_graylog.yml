@@ -1,5 +1,15 @@
 #cloud-config
 
+users:
+  - name: admin
+    groups: docker
+    home: /home/admin
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh-authorized-keys:
+      - ssh-ed25519 somesshkey some@example
+      - ssh-ed25519 somesshkey some@example
+
 # Prep Steps:
 
 # import docker key
@@ -71,39 +81,86 @@ write_files:
       =0YYh
       -----END PGP PUBLIC KEY BLOCK-----
 
+## SET IP TO YOUR GELF SERVER HERE      
+
   - path: /etc/docker/daemon.json
     permissions: '0644'
     content: |
       {
         "log-driver": "gelf",
         "log-opts": {
-          "gelf-address": "tcp://10.1.100.15:12201",
+          "gelf-address": "tcp://10.1.15.50:12201",
           "tag": "docker/{{.Name}}"
         },
         "max-concurrent-downloads": 24,
         "max-concurrent-uploads": 8
       }
 
+## SET IP TO YOUR SYSLOG SERVER HERE      
+
   - path: /etc/rsyslog.d/graylog.conf
     permissions: '0644'
     content: |
-      # provides TCP syslog reception
-      module(load="imtcp")
-      input(type="imtcp" port="5140")
-
       # provides TCP forwarding
       module(load="omfwd")
 
       # journald
       module(load="imjournal")
 
-      *.* @@10.1.100.15:5140;RSYSLOG_SyslogProtocol23Format
+      *.* @@10.1.15.50:5140;RSYSLOG_SyslogProtocol23Format
 
   - path: /etc/systemd/journald.conf.d/forward-syslog.conf
     permissions: '0644'
     content: |
       [Journal]
       ForwardToSyslog=yes
+      SystemMaxUse=50M
+      RuntimeMaxUse=40M
+
+  - path: /etc/logrotate.d/rsyslog-custom
+    permissions: '0644'
+    content: |
+      /var/log/syslog
+      /var/log/messages
+      /var/log/auth.log
+      /var/log/kern.log
+      /var/log/daemon.log
+      /var/log/cron.log
+      {
+          rotate 5
+          size 50M
+          missingok
+          notifempty
+          compress
+          delaycompress
+          sharedscripts
+          postrotate
+              /usr/lib/rsyslog/rsyslog-rotate
+          endscript
+      }
+
+  - path: /etc/systemd/system/journal-vacuum.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Vacuum systemd journal logs
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/journalctl --vacuum-time=7d
+
+  - path: /etc/systemd/system/journal-vacuum.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Run journal vacuum daily
+
+      [Timer]
+      OnCalendar=daily
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
 
 # Create a docker-compose file where you want it to live
   - path: /mnt/admin/docker-compose.yml
@@ -126,32 +183,28 @@ packages:
   - docker-compose-plugin
   - qemu-guest-agent
   - rsyslog
-  
+  - logrotate
+
 # create the docker group
 groups:
   - docker
-
-users:
-  - name: admin
-    groups: docker
-    home: /home/admin
-    shell: /bin/bash
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    ssh-authorized-keys:
-      - ssh-ed25519 Afdasgaga
-      - ssh-ed25519 Afadseawga
 
 # Add default auto created user to docker group
 system_info:
   default_user:
     groups: [docker]
 
-# Restart Services
 runcmd:
-  - systemctl restart docker
-  - systemctl restart rsyslog
-  - systemctl restart systemd-journald
-
+  - systemctl enable docker
+  - systemctl start docker
+  - systemctl enable qemu-guest-agent
+  - systemctl start qemu-guest-agent
+  - systemctl restart rsyslog || echo "rsyslog restart failed" >> /var/log/cloud-init-error.log
+  - systemctl restart systemd-journald || echo "journald restart failed" >> /var/log/cloud-init-error.log
+  - logrotate /etc/logrotate.d/rsyslog-custom --force || echo "logrotate failed" >> /var/log/cloud-init-error.log
+  - systemctl enable journal-vacuum.timer || echo "journal-vacuum timer enable failed" >> /var/log/cloud-init-error.log
+  - systemctl start journal-vacuum.timer || echo "journal-vacuum timer start failed" >> /var/log/cloud-init-error.log
+  
 # Example pulling and running a docker image using cloud-init
 # runcmd:
 #  - /usr/bin/sleep 10
