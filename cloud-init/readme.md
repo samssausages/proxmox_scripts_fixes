@@ -57,14 +57,16 @@ NAME=debian13-docker
 ST=apool
 # Path to Cloud Init Image from step 1
 IMG=/mnt/pve/smb/template/iso/debian-13-genericcloud-amd64-20251006-2257.qcow2
+# Storage location for the cloud init drive from step 2: (note must show proxmox storage type, and path)
+YML=user=smb:snippets/cloud-init-debian13-docker.yaml
 
 # VM Settings
 qm create $VMID --cores 8 --memory 8096 --net0 virtio,bridge=vmbr991,tag=50,queues=2,mtu=1500 --scsihw virtio-scsi-pci --agent 1
 qm importdisk $VMID $IMG $ST
 qm set $VMID --scsi0 $ST:vm-$VMID-disk-0
 qm set $VMID --ide2 $ST:cloudinit --boot order=scsi0
-# storage location for the cloud init drive:
-qm set $VMID --cicustom "user=smb:snippets/cloud-init-debian13-docker.yaml"
+# Storage location for the cloud init drive from step 2:
+qm set $VMID --cicustom "$YML"
 qm template $VMID
 
 ```
@@ -76,7 +78,7 @@ qm template $VMID
 
 - Right click the template -> Clone
 
-### 5. Start the new VM & allow enough time for cloud-init to complete (may take 5-10 minutes depending on your internet speed as it downloads packages and updates the system)
+### 5. Start the new VM & allow enough time for cloud-init to complete (may take 5-10 minutes depending on your internet speed as it downloads packages and updates the system.  You can kind of monitor progress by looking at the VM console output in Proxmox GUI.  But I noticed sometimes that doesnt' refresh properly so best to just wait a bit).
 
 ### 6. Access your new VM
 
@@ -86,9 +88,17 @@ qm template $VMID
 sudo cloud-init status --long
 ```
 
-### 8. Enjoy your new Docker Debian 13 VM!
+### 8. Increase the VM disk size if needed & reboot VM (optional)
+
+### 9. Enjoy your new Docker Debian 13 VM!
 
 ### Troubleshooting:
+
+Check Cloud-Init logs from inside VM.  This should be your first step if something is not working as expected and done after first vm boot:
+
+```
+sudo cloud-init status --long
+```
 
 Cloud init validate file from host:
 
@@ -101,4 +111,3 @@ Cloud init validate file from inside VM:
 ```
 sudo cloud-init schema --system --annotate
 ``` 
-
