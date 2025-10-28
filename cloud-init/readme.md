@@ -61,7 +61,7 @@ IMG=/mnt/pve/smb/template/iso/debian-13-genericcloud-amd64-20251006-2257.qcow2
 YML=user=smb:snippets/cloud-init-debian13-docker.yaml
 
 # VM Settings
-qm create $VMID --cores 8 --memory 8096 --net0 virtio,bridge=vmbr991,tag=50,queues=2,mtu=1500 --scsihw virtio-scsi-pci --agent 1
+qm create $VMID --cores 2 --memory 2048 --net0 virtio,bridge=vmbr991 --scsihw virtio-scsi-pci --agent 1
 qm importdisk $VMID $IMG $ST
 qm set $VMID --scsi0 $ST:vm-$VMID-disk-0
 qm set $VMID --ide2 $ST:cloudinit --boot order=scsi0
