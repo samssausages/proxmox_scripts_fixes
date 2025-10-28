@@ -1,16 +1,28 @@
 #cloud-config
+# Let cloud-init set hostname from Proxmox “Hostname” field.
+preserve_hostname: false
+manage_etc_hosts: true
+timezone: America/Chicago
+
+ssh_pwauth: false        # => PasswordAuthentication no
+disable_root: true       # => PermitRootLogin no
 
 users:
   - name: admin
-    groups: docker
-    home: /home/admin
+    gecos: Admin
+    groups: [docker, sudo]
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
-    ssh-authorized-keys:
-      - ssh-ed25519 somesshkey some@example
-      - ssh-ed25519 somesshkey some@example
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 ifhdiodfsuahadosif;hadso;ihn test@test
+      - ssh-ed25519 ifhdiodfsuahadosif;hadso;ihn test@test
 
 # Prep Steps:
+bootcmd:
+  - mkdir -p /etc/apt/keyrings
+  - mkdir -p /etc/systemd/journald.conf.d
+  - mkdir -p /usr/share/keyrings
 
 # import docker key
 write_files:
@@ -81,101 +93,97 @@ write_files:
       =0YYh
       -----END PGP PUBLIC KEY BLOCK-----
 
-## SET IP TO YOUR GELF SERVER HERE      
-
   - path: /etc/docker/daemon.json
     permissions: '0644'
     content: |
       {
         "log-driver": "gelf",
         "log-opts": {
-          "gelf-address": "tcp://10.1.15.50:12201",
+          "gelf-address": "tcp://10.1.2.15:12201",
           "tag": "docker/{{.Name}}"
         },
         "max-concurrent-downloads": 24,
         "max-concurrent-uploads": 8
       }
 
-## SET IP TO YOUR SYSLOG SERVER HERE      
-
-  - path: /etc/rsyslog.d/graylog.conf
+  # create /run/rsyslog
+  - path: /etc/systemd/system/rsyslog.service.d/override.conf
+    owner: root:root
     permissions: '0644'
     content: |
-      # provides TCP forwarding
-      module(load="omfwd")
+      [Service]
+      RuntimeDirectory=rsyslog
+      RuntimeDirectoryMode=0755
 
-      # journald
-      module(load="imjournal")
+  # Rsyslog -> Graylog
+  - path: /etc/rsyslog.d/01-graylog.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      global(workDirectory="/run/rsyslog")
+      module(load="imjournal" StateFile="/run/rsyslog/imjournal.state")
 
-      *.* @@10.1.15.50:5140;RSYSLOG_SyslogProtocol23Format
+      action(
+        type="omfwd"
+        target="10.1.2.15" port="5140" protocol="tcp"
+        template="RSYSLOG_SyslogProtocol23Format"
+        action.resumeRetryCount="-1"
+        queue.type="LinkedList" queue.size="100000"
+        queue.dequeuebatchsize="1000" queue.workerthreads="2"
+        queue.spoolDirectory="/run/rsyslog"
+      )
+      & stop
 
-  - path: /etc/systemd/journald.conf.d/forward-syslog.conf
+  # Journald logs volatile rsyslog will read via imjournal
+  - path: /etc/systemd/journald.conf.d/zz-forward-off.conf
+    owner: root:root
     permissions: '0644'
     content: |
       [Journal]
-      ForwardToSyslog=yes
-      SystemMaxUse=50M
-      RuntimeMaxUse=40M
-
-  - path: /etc/logrotate.d/rsyslog-custom
+      Storage=volatile
+      RuntimeMaxUse=128M
+      ForwardToSyslog=no
+      RateLimitIntervalSec=0
+      
+  # Unattended Upgrades
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
     permissions: '0644'
     content: |
-      /var/log/syslog
-      /var/log/messages
-      /var/log/auth.log
-      /var/log/kern.log
-      /var/log/daemon.log
-      /var/log/cron.log
-      {
-          rotate 5
-          size 50M
-          missingok
-          notifempty
-          compress
-          delaycompress
-          sharedscripts
-          postrotate
-              /usr/lib/rsyslog/rsyslog-rotate
-          endscript
-      }
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
 
-  - path: /etc/systemd/system/journal-vacuum.service
+  # unattended-upgrades policy
+  - path: /etc/apt/apt.conf.d/52unattended-upgrades-local
+    owner: root:root
     permissions: '0644'
     content: |
-      [Unit]
-      Description=Vacuum systemd journal logs
-
-      [Service]
-      Type=oneshot
-      ExecStart=/bin/journalctl --vacuum-time=7d
-
-  - path: /etc/systemd/system/journal-vacuum.timer
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=Run journal vacuum daily
-
-      [Timer]
-      OnCalendar=daily
-      Persistent=true
-
-      [Install]
-      WantedBy=timers.target
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+      };
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "false";
+      Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+      Unattended-Upgrade::MinimalSteps "true";
 
 # Create a docker-compose file where you want it to live
-  - path: /mnt/admin/docker-compose.yml
+  - path: /home/admin/apps/docker-compose.yml
     permissions: '0644'
     content: |
+
+# --- APT & packages ---
+package_update: true
+package_upgrade: true
 
 apt:
   sources:
     docker.list:
-      source: deb [arch=amd64 signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable
-
-package_update: true
-package_upgrade: true
+      source: deb [arch=amd64 signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/debian trixie stable
 
 packages:
+  - sudo
   - docker-ce
   - docker-ce-cli
   - containerd.io
@@ -183,30 +191,39 @@ packages:
   - docker-compose-plugin
   - qemu-guest-agent
   - rsyslog
-  - logrotate
+  - unattended-upgrades
+  - cloud-guest-utils
 
-# create the docker group
-groups:
-  - docker
-
-# Add default auto created user to docker group
-system_info:
-  default_user:
-    groups: [docker]
+# Grow root disk if the template disk is expanded later
+growpart:
+  mode: auto
+resize_rootfs: true
 
 runcmd:
-  - systemctl enable docker
-  - systemctl start docker
-  - systemctl enable qemu-guest-agent
-  - systemctl start qemu-guest-agent
-  - systemctl restart rsyslog || echo "rsyslog restart failed" >> /var/log/cloud-init-error.log
-  - systemctl restart systemd-journald || echo "journald restart failed" >> /var/log/cloud-init-error.log
-  - logrotate /etc/logrotate.d/rsyslog-custom --force || echo "logrotate failed" >> /var/log/cloud-init-error.log
-  - systemctl enable journal-vacuum.timer || echo "journal-vacuum timer enable failed" >> /var/log/cloud-init-error.log
-  - systemctl start journal-vacuum.timer || echo "journal-vacuum timer start failed" >> /var/log/cloud-init-error.log
+  # rsyslog: comment out imuxsock & imklog
+  - sed -i -E 's/^[[:space:]]*module\(load="imuxsock".*$/# &/; s/^[[:space:]]*module\(load="imklog".*$/# &/' /etc/rsyslog.conf
+  # Make journal explicitly volatile
+  - rm -rf /var/log/journal || true
+  - chown -R admin:admin /home/admin
+  - chmod 700 /home/admin
+  - chown -R admin:admin /home/admin/.ssh || true
+  - systemctl daemon-reload
+  - systemctl restart systemd-journald
+  - systemctl enable --now rsyslog
+  - systemctl enable --now qemu-guest-agent
+  - systemctl enable --now docker
+  - systemctl enable --now unattended-upgrades
+  - usermod -aG docker admin
+  - install -d -o admin -g admin /home/admin/apps
+  - systemctl reload ssh || systemctl restart ssh
+  - apt -y autoremove --purge
+  - apt -y autoclean
+  - apt -y clean  
   
 # Example pulling and running a docker image using cloud-init
 # runcmd:
 #  - /usr/bin/sleep 10
 #  - /usr/bin/docker pull programster/some-image-name
 #  - /usr/bin/docker run -d -p 8000:80 --restart=always programster/some-image-name
+
+final_message: "Cloud-init finished!"

@@ -1,28 +1,6 @@
 #cloud-config
-# Let cloud-init set hostname from Proxmox “Hostname” field.
-preserve_hostname: false
-manage_etc_hosts: true
-timezone: America/Chicago
-
-ssh_pwauth: false        # => PasswordAuthentication no
-disable_root: true       # => PermitRootLogin no
-
-users:
-  - name: admin
-    gecos: Admin
-    groups: [docker, sudo]
-    shell: /bin/bash
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    lock_passwd: true
-    ssh_authorized_keys:
-      - ssh-ed25519 ifhdiodfsuahadosif;hadso;ihn test@test
-      - ssh-ed25519 ifhdiodfsuahadosif;hadso;ihn test@test
 
 # Prep Steps:
-bootcmd:
-  - mkdir -p /etc/apt/keyrings
-  - mkdir -p /etc/systemd/journald.conf.d
-  - mkdir -p /usr/share/keyrings
 
 # import docker key
 write_files:
@@ -100,80 +78,53 @@ write_files:
         "max-concurrent-downloads": 24,
         "max-concurrent-uploads": 8
       }
-      
-  # Unattended Upgrades
-  - path: /etc/apt/apt.conf.d/20auto-upgrades
-    owner: root:root
+
+  # Create a docker-compose file where you want it to live
+  - path: /mnt/admin/docker-compose.yml
     permissions: '0644'
     content: |
-      APT::Periodic::Update-Package-Lists "1";
-      APT::Periodic::Unattended-Upgrade "1";
-      APT::Periodic::AutocleanInterval "7";
-
-  # unattended-upgrades policy
-  - path: /etc/apt/apt.conf.d/52unattended-upgrades-local
-    owner: root:root
-    permissions: '0644'
-    content: |
-      Unattended-Upgrade::Origins-Pattern {
-        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
-        "origin=Debian,codename=${distro_codename},label=Debian-Security";
-      };
-      Unattended-Upgrade::Remove-Unused-Dependencies "true";
-      Unattended-Upgrade::Automatic-Reboot "false";
-      Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
-      Unattended-Upgrade::MinimalSteps "true";
-
-# Create a docker-compose file where you want it to live
-  - path: /home/admin/apps/docker-compose.yml
-    permissions: '0644'
-    content: |
-
-# --- APT & packages ---
-package_update: true
-package_upgrade: true
 
 apt:
   sources:
     docker.list:
-      source: deb [arch=amd64 signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/debian trixie stable
+      source: deb [arch=amd64 signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable
+
+package_update: true
+package_upgrade: true
 
 packages:
-  - sudo
   - docker-ce
   - docker-ce-cli
   - containerd.io
   - docker-buildx-plugin
   - docker-compose-plugin
   - qemu-guest-agent
-  - unattended-upgrades
-  - cloud-guest-utils
-
-# Grow root disk if the template disk is expanded later
-growpart:
-  mode: auto
-resize_rootfs: true
-
-runcmd:
-  - chown -R admin:admin /home/admin
-  - chmod 700 /home/admin
-  - chown -R admin:admin /home/admin/.ssh || true
-  - systemctl daemon-reload
-  - systemctl restart systemd-journald
-  - systemctl enable --now qemu-guest-agent
-  - systemctl enable --now docker
-  - systemctl enable --now unattended-upgrades
-  - usermod -aG docker admin
-  - install -d -o admin -g admin /home/admin/apps
-  - systemctl reload ssh || systemctl restart ssh
-  - apt -y autoremove --purge
-  - apt -y autoclean
-  - apt -y clean  
   
+# create the docker group
+groups:
+  - docker
+
+users:
+  - name: admin
+    groups: docker
+    home: /home/admin
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh-authorized-keys:
+      - ssh-ed25519 Afdasgaga
+      - ssh-ed25519 Afadseawga
+
+# Add default auto created user to docker group
+system_info:
+  default_user:
+    groups: [docker]
+
+# Restart Services
+runcmd:
+  - systemctl restart docker
+
 # Example pulling and running a docker image using cloud-init
 # runcmd:
 #  - /usr/bin/sleep 10
 #  - /usr/bin/docker pull programster/some-image-name
 #  - /usr/bin/docker run -d -p 8000:80 --restart=always programster/some-image-name
-
-final_message: "Cloud-init finished!"
