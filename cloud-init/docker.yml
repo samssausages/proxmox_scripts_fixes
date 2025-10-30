@@ -10,7 +10,7 @@ disable_root: true       # => PermitRootLogin no
 users:
   - name: admin
     gecos: Admin
-    groups: [docker, sudo]
+    groups: [sudo]
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: true
@@ -129,6 +129,22 @@ write_files:
     permissions: '0644'
     content: |
 
+  # Create swap
+  - path: /etc/systemd/zram-generator.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [zram0]
+      zram-size = min(ram / 2, 512)
+      compression-algorithm = zstd
+      swap-priority = 150
+
+  - path: /etc/sysctl.d/99-cloud-tuning.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      vm.swappiness = 10
+
 # --- APT & packages ---
 package_update: true
 package_upgrade: true
@@ -139,15 +155,14 @@ apt:
       source: deb [arch=amd64 signed-by=/usr/share/keyrings/docker.asc] https://download.docker.com/linux/debian trixie stable
 
 packages:
-  - sudo
+  - qemu-guest-agent
+  - cloud-guest-utils
+  - systemd-zram-generator
   - docker-ce
   - docker-ce-cli
   - containerd.io
   - docker-buildx-plugin
   - docker-compose-plugin
-  - qemu-guest-agent
-  - unattended-upgrades
-  - cloud-guest-utils
 
 # Grow root disk if the template disk is expanded later
 growpart:
@@ -155,25 +170,27 @@ growpart:
 resize_rootfs: true
 
 runcmd:
+  # admin user setup
+  - install -d -o admin -g admin /home/admin/apps
   - chown -R admin:admin /home/admin
   - chmod 700 /home/admin
   - chown -R admin:admin /home/admin/.ssh || true
+  - usermod -aG docker admin
+  # sys reload
   - systemctl daemon-reload
-  - systemctl restart systemd-journald
   - systemctl enable --now qemu-guest-agent
+  - systemctl enable --now dev-zram0.swap
+  - systemctl start systemd-zram-setup@zram0.service || true
+  - sysctl -p /etc/sysctl.d/99-cloud-tuning.conf || sysctl --system
   - systemctl enable --now docker
   - systemctl enable --now unattended-upgrades
-  - usermod -aG docker admin
-  - install -d -o admin -g admin /home/admin/apps
   - systemctl reload ssh || systemctl restart ssh
+  # housekeeping
   - apt -y autoremove --purge
   - apt -y autoclean
   - apt -y clean  
   
-# Example pulling and running a docker image using cloud-init
-# runcmd:
-#  - /usr/bin/sleep 10
-#  - /usr/bin/docker pull programster/some-image-name
-#  - /usr/bin/docker run -d -p 8000:80 --restart=always programster/some-image-name
-
-final_message: "Cloud-init finished!"
+power_state:
+  mode: poweroff            # or reboot / halt
+  message: "cloud-init complete; shutting down for templating"
+  delay: "+1"

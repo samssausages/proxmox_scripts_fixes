@@ -5,29 +5,29 @@ Cloud init:
 ## Docker.yml
 - Installs Docker
 - Sets some reasonable defaults
-- Installs SUDO
 - Disable Root Login
-- Disable Password Authentication (SSH Only!)
+- Disable Password Authentication (SSH Only! Add your SSH keys in the file)
 - Installs Unattended Upgrades (Security Updates Only)
 - Installs qemu-guest-agent
 - Installs cloud-guest-utils (for growpart, to auto grow disk if you expand it later)
+- Installs systemd-zram-generator for swap (to reduce disk I/O and improve performance on VMs with low RAM)
+- Shuts down the VM after cloud-init is complete
 
 ## Docker_graylog.yml
 
 - Installs Docker
 - Sets some reasonable defaults
-- Installs SUDO
 - Disable Root Login
-- Disable Password Authentication (SSH Only!)
+- Disable Password Authentication (SSH Only! Add your SSH keys in the file)
 - Installs Unattended Upgrades (Security Updates Only)
 - Installs qemu-guest-agent
 - Installs cloud-guest-utils (for growpart, to auto grow disk if you expand it later)
+- Installs systemd-zram-generator for swap (to reduce disk I/O and improve performance on VMs with low RAM)
 - Configures Remote Logging for Docker to Graylog using GELF (DOCKER MUST BE ABLE OT ACCESS GELF SERVER OR ERROR WILL BE PRODUCED WHEN YOU COMPOSE UP)
-- Configures VM with rsyslog and forwards to Graylog server using rsyslog
-- Persistent Local Logging is disabled!  We forward all logs to Graylog/syslog and we save local logs to memory only.  (To reduce disk utilization)  This means logs will be lost on reboot and will live on your syslog server only.
-- Make sure you set your syslog IP address in the .yml file, or it will use the default IP to try and forward to, likely causing it to fail.
-
-Note: you must add the ip to your syslog and gelf server in the graylog file!
+- Configures VM with rsyslog and forwards to log server using rsyslog
+- Persistent Local Logging is disabled!  We forward all logs to external syslog and we save local logs to memory only.  (To reduce disk utilization)  This means logs will be lost on reboot and will live on your syslog server only.
+- Shuts down the VM after cloud-init is complete
+NOTE: Make sure you set your syslog IP address in the .yml file, or it will use the default IP causing it to fail. 
 
 ## Step By Step Guide to using these files:
 
@@ -35,6 +35,9 @@ Note: you must add the ip to your syslog and gelf server in the graylog file!
 
 Find newest version here:
 https://cloud.debian.org/images/cloud/trixie/
+
+As of writing this, the most current amd64 is: 
+https://cloud.debian.org/images/cloud/trixie/20251006-2257/debian-13-genericcloud-amd64-20251006-2257.qcow2
 
 Save to your proxmox server, e.g.:
 `/mnt/pve/smb/template/iso/debian-13-genericcloud-amd64-20251006-2257.qcow2`
@@ -61,7 +64,7 @@ IMG=/mnt/pve/smb/template/iso/debian-13-genericcloud-amd64-20251006-2257.qcow2
 YML=user=smb:snippets/cloud-init-debian13-docker.yaml
 
 # VM Settings
-qm create $VMID --cores 2 --memory 2048 --net0 virtio,bridge=vmbr1 --scsihw virtio-scsi-pci --agent 1
+qm create $VMID --name $NAME --cores 2 --memory 2048 --net0 virtio,bridge=vmbr1 --scsihw virtio-scsi-pci --agent 1
 qm importdisk $VMID $IMG $ST
 qm set $VMID --scsi0 $ST:vm-$VMID-disk-0
 qm set $VMID --ide2 $ST:cloudinit --boot order=scsi0
@@ -78,9 +81,15 @@ qm template $VMID
 
 - Right click the template -> Clone
 
-### 5. Start the new VM & allow enough time for cloud-init to complete (may take 5-10 minutes depending on your internet speed as it downloads packages and updates the system.  You can kind of monitor progress by looking at the VM console output in Proxmox GUI.  But I noticed sometimes that doesnt' refresh properly so best to just wait a bit).
+### 5. Start the new VM & allow enough time for cloud-init to complete 
 
-### 6. Access your new VM
+It may take 5-10 minutes depending on your internet speed, as it downloads packages and updates the system.  The VM will turn off when cloud-init is completed.
+You can kind of monitor progress by looking at the VM console output in Proxmox GUI.  But sometimes that doesnt' refresh properly, so best to just wait until it shuts down.
+If the VM doesn't shut down and just sits at a login prompt, then cloud-init likely failed.  Check troubleshooting section below.
+
+### 7. Remove cloud-init drive to prevent re-running cloud-init on boot
+
+### 8. Access your new VM
 
 - check logs inside VM to confirm cloud-init completed successfully:
 
@@ -88,7 +97,7 @@ qm template $VMID
 sudo cloud-init status --long
 ```
 
-### 8. Increase the VM disk size if needed & reboot VM (optional)
+### 9. Increase the VM disk size if needed & reboot VM (optional)
 
 ### 9. Enjoy your new Docker Debian 13 VM!
 
