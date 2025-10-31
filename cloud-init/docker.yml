@@ -18,6 +18,16 @@ users:
       - ssh-ed25519 ifhdiodfsuahadosif;hadso;ihn test@test
       - ssh-ed25519 ifhdiodfsuahadosif;hadso;ihn test@test
 
+# Make a filesystem directly on APPDATA01 and mount it at /mnt/appdata
+fs_setup:
+  - label: APPDATA
+    filesystem: ext4
+    device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+    partition: none
+
+mounts:
+  - [ "LABEL=APPDATA", "/mnt/appdata", "ext4", "defaults,noatime,nofail,x-systemd.growfs", "0", "2" ]
+
 # Prep Steps:
 bootcmd:
   - mkdir -p /etc/apt/keyrings
@@ -93,12 +103,21 @@ write_files:
       =0YYh
       -----END PGP PUBLIC KEY BLOCK-----
 
+  # Make Docker wait for Appdata Mount
+  - path: /etc/systemd/system/docker.service.d/10-require-appdata.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      RequiresMountsFor=/mnt/appdata
+
   - path: /etc/docker/daemon.json
     permissions: '0644'
     content: |
       {
         "max-concurrent-downloads": 24,
-        "max-concurrent-uploads": 8
+        "max-concurrent-uploads": 8,
+        "data-root": "/mnt/appdata/docker"
       }
       
   # Unattended Upgrades
@@ -163,6 +182,7 @@ packages:
   - containerd.io
   - docker-buildx-plugin
   - docker-compose-plugin
+  - unattended-upgrades
 
 # Grow root disk if the template disk is expanded later
 growpart:
@@ -170,6 +190,7 @@ growpart:
 resize_rootfs: true
 
 runcmd:
+  - mkdir -p /mnt/appdata/docker
   # admin user setup
   - install -d -o admin -g admin /home/admin/apps
   - chown -R admin:admin /home/admin
@@ -178,17 +199,18 @@ runcmd:
   - usermod -aG docker admin
   # sys reload
   - systemctl daemon-reload
-  - systemctl enable --now qemu-guest-agent
   - systemctl enable --now dev-zram0.swap
   - systemctl start systemd-zram-setup@zram0.service || true
   - sysctl -p /etc/sysctl.d/99-cloud-tuning.conf || sysctl --system
+  - systemctl enable --now qemu-guest-agent
   - systemctl enable --now docker
   - systemctl enable --now unattended-upgrades
   - systemctl reload ssh || systemctl restart ssh
+  - systemctl enable --now fstrim.timer
   # housekeeping
   - apt -y autoremove --purge
   - apt -y autoclean
-  - apt -y clean  
+  - apt -y clean   
   
 power_state:
   mode: poweroff            # or reboot / halt

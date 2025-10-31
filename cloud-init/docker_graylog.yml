@@ -19,6 +19,15 @@ users:
       - ssh-ed25519 fafea34324tfasd devicea
       - ssh-ed25519 fdadfdaf+fadfda+ deviceb
 
+# Make a filesystem directly on APPDATA01 and mount it at /mnt/appdata
+fs_setup:
+  - label: APPDATA
+    filesystem: ext4
+    device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+    partition: none
+
+mounts:
+  - [ "LABEL=APPDATA", "/mnt/appdata", "ext4", "defaults,noatime,nofail,x-systemd.growfs", "0", "2" ]
 
 # Prep Steps:
 bootcmd:
@@ -95,6 +104,14 @@ write_files:
       =0YYh
       -----END PGP PUBLIC KEY BLOCK-----
 
+  # Make Docker wait for Appdata Mount
+  - path: /etc/systemd/system/docker.service.d/10-require-appdata.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      RequiresMountsFor=/mnt/appdata
+
   - path: /etc/docker/daemon.json
     permissions: '0644'
     content: |
@@ -105,7 +122,8 @@ write_files:
           "tag": "docker/{{.Name}}"
         },
         "max-concurrent-downloads": 24,
-        "max-concurrent-uploads": 8
+        "max-concurrent-uploads": 8,
+        "data-root": "/mnt/appdata/docker"
       }
 
   # create /run/rsyslog
@@ -218,6 +236,7 @@ growpart:
 resize_rootfs: true
 
 runcmd:
+  - mkdir -p /mnt/appdata/docker
   # rsyslog: comment out imuxsock & imklog
   - sed -i -E 's/^[[:space:]]*module\(load="imuxsock".*$/# &/; s/^[[:space:]]*module\(load="imklog".*$/# &/' /etc/rsyslog.conf
   # Make journal explicitly volatile
@@ -239,6 +258,7 @@ runcmd:
   - systemctl enable --now docker
   - systemctl enable --now unattended-upgrades
   - systemctl reload ssh || systemctl restart ssh
+  - systemctl enable --now fstrim.timer
   # housekeeping
   - apt -y autoremove --purge
   - apt -y autoclean
