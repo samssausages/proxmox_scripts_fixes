@@ -116,14 +116,16 @@ write_files:
     permissions: '0644'
     content: |
       {
-        "log-driver": "gelf",
+        "log-driver": "journald",
         "log-opts": {
-          "gelf-address": "tcp://10.1.2.15:12201",
-          "tag": "docker/{{.Name}}"
+          "tag": "docker/{{.Name}}",
+          "labels": "com.docker.compose.project,com.docker.compose.service",
+          "env": "NODE_ENV,ROLE"
         },
         "max-concurrent-downloads": 24,
         "max-concurrent-uploads": 8,
-        "data-root": "/mnt/appdata/docker"
+        "data-root": "/mnt/appdata/docker",
+        "live-restore": true
       }
 
   # create /run/rsyslog

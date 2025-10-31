@@ -112,6 +112,7 @@ write_files:
       RequiresMountsFor=/mnt/appdata
 
   - path: /etc/docker/daemon.json
+    owner: root:root
     permissions: '0644'
     content: |
       {

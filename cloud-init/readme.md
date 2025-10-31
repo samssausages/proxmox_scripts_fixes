@@ -3,6 +3,7 @@ Cloud init:
 ## Updated for Debian 13
 
 ## Docker.yml
+
 - Installs Docker
 - Sets some reasonable defaults
 - Disable Root Login
@@ -26,7 +27,7 @@ Cloud init:
 - Uses separate disk for appdata, mounted to /mnt/appdata (entire docker folder (/var/lib/docker/) is mounted to /mnt/appdata/docker)
 - Installs systemd-zram-generator for swap (to reduce disk I/O)
 - Shuts down the VM after cloud-init is complete
-- Configures VM with rsyslog and forwards to log server using rsyslog (Make sure you set your syslog server IP in the file.  Same for the docker GELF logging driver settings)
+- Configures VM with rsyslog and forwards to log server using rsyslog (Make sure you set your syslog server IP in the file.)
 - Persistent Local Logging is disabled!  We forward all logs to external syslog and we keep local logs in memory only to reduce disk I/O.  This means logs will be lost on reboot and will live on your syslog server only.
 
 ## Step By Step Guide to using these files:
@@ -52,17 +53,20 @@ Create a file in your proxmox server at e.g.:
 `/mnt/pve/smb/snippets/cloud-init-debian13-docker.yaml`
 
 #### for docker.yml:
+
 ```
 wget -O ./cloud-init-debian13-docker.yaml https://raw.githubusercontent.com/samssausages/proxmox_scripts_fixes/708825ff3f4c78ca7118bd97cd40f082bbf19c03/cloud-init/docker.yml
 ```
 
 #### for docker_graylog.yml:
+
 ```
 wget -O ./cloud-init-debian13-docker-log.yaml https://github.com/samssausages/proxmox_scripts_fixes/blob/708825ff3f4c78ca7118bd97cd40f082bbf19c03/cloud-init/docker_graylog.yml
 ```
 
 
 ### 3. Create a new VM in Proxmox.  You can config the VM here and past all of this into the CLI:
+
 (note path to the cloud-init from step 1 and path to snipped file created in step 2)
 
 ```
@@ -123,8 +127,8 @@ qm set $VMID --vga serial0
 
 # Convert to template
 qm template $VMID
-
 ```
+
 ### 4. Deploy a new VM from the template we just created
 
 - Go to the Template you just created in the Proxmox GUI and config the cloud-init settings as needed (e.g. set hostname, set IP address if not using DHCP)  (SSH keys are set in out snippet file)
@@ -172,9 +176,16 @@ Cloud init validate file from inside VM:
 ```
 sudo cloud-init schema --system --annotate
 ``` 
+
 ### Common Reasons for Cloud-Init Failures:
+
 - Incorrect YAML formatting (use a YAML validator to check your file)
 - Network issues preventing package downloads
 - Incorrect SSH key format
 - Insufficient VM resources (CPU, RAM)
 - Proxmox storage name not matching what is in the commands
+- Second disk must be attached as scsi1 for the appdata mount to link correctly
+
+### Todo:
+
+ - make appdata device selection more durable
