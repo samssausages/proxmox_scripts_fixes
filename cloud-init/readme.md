@@ -84,7 +84,7 @@ ST=apool
 IMG=/mnt/pve/bertha-smb/template/iso/debian-13-genericcloud-amd64-20251006-2257.qcow2
 
 # Storage location for the cloud init drive from step 2 (must be on proxmox snippet storage and include proxmox storage + snippets path)
-YML=user=bertha-smb:snippets/cloud-init-debian13-docker.yaml
+YML=vendor=bertha-smb:snippets/cloud-init-debian13-docker.yaml
 
 # VM CPU Cores
 CPU=4
