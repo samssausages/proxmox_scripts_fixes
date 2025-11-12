@@ -1,41 +1,62 @@
 #cloud-config
-# Let cloud-init set hostname from Proxmox “Hostname” field.
+
+# Enable Debug if you want detailed logs saved to your /home/logs dir (initial cloud-init boot only)
+debug: false
+output:
+  all: "| tee -a /var/log/cloud-init-output.log"
+final_message: "cloud-init finished after $UPTIME seconds"
+
+# Let cloud-init set hostname using proxmox vm name.
 preserve_hostname: false
 manage_etc_hosts: true
 timezone: America/Chicago
 
-ssh_pwauth: false        # => PasswordAuthentication no
-disable_root: true       # => PermitRootLogin no
+ssh_pwauth: false        # PasswordAuthentication no
+disable_root: true       # PermitRootLogin no
 
 users:
   - name: admin
     gecos: Admin
-    groups: [sudo]
+    groups: [adm,sudo]
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: true
     ssh_authorized_keys:
-      - ssh-ed25519 ifhdiodfsuahadosif;hadso;ihn test@test
-      - ssh-ed25519 ifhdiodfsuahadosif;hadso;ihn test@test
-
-# Make a filesystem directly on APPDATA01 and mount it at /mnt/appdata
-fs_setup:
-  - label: APPDATA
-    filesystem: ext4
-    device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
-    partition: none
+      - ssh-ed25519 yourkey
 
 mounts:
-  - [ "LABEL=APPDATA", "/mnt/appdata", "ext4", "defaults,noatime,nofail,x-systemd.growfs", "0", "2" ]
+  - [ "LABEL=APPDATA", "/mnt/appdata", "ext4", "defaults,noatime,nofail,x-systemd.growfs,nodev", "0", "2" ]
 
 # Prep Steps:
 bootcmd:
   - mkdir -p /etc/apt/keyrings
-  - mkdir -p /etc/systemd/journald.conf.d
   - mkdir -p /usr/share/keyrings
+  # for end of cloud-init log dump
+  - mkdir -p /home/admin/logs
+  # Auto Detect APPDATA disk and mount it
+  - |
+    set -eux
 
-# import docker key
+    # Give udev a moment to create by-id links
+    udevadm settle || true
+
+    # Find the extra disk by WWN (fallback to scsi-3... form). Ignore partitions.
+    APP_DEV="$(ls -1 /dev/disk/by-id/wwn-0x2* 2>/dev/null | grep -v -- '-part[0-9]\+$' | head -n1 || true)"
+    [ -z "$APP_DEV" ] && APP_DEV="$(ls -1 /dev/disk/by-id/scsi-3* 2>/dev/null | grep -v -- '-part[0-9]\+$' | head -n1 || true)"
+    [ -z "$APP_DEV" ] && exit 0
+
+    DEV_REAL="$(readlink -f "$APP_DEV")"
+
+    FSTYPE="$(lsblk -no FSTYPE "$DEV_REAL" | head -n1 || true)"
+    if [ -z "$FSTYPE" ]; then
+      mkfs.ext4 -F -L APPDATA "$DEV_REAL"
+    fi
+
+    mkdir -p /mnt/appdata
+    mount -L APPDATA /mnt/appdata || true
+
 write_files:
+  # import docker key
   - path: /usr/share/keyrings/docker.asc
     owner: root:root
     permissions: '0644'
@@ -103,24 +124,6 @@ write_files:
       =0YYh
       -----END PGP PUBLIC KEY BLOCK-----
 
-  # Make Docker wait for Appdata Mount
-  - path: /etc/systemd/system/docker.service.d/10-require-appdata.conf
-    owner: root:root
-    permissions: '0644'
-    content: |
-      [Unit]
-      RequiresMountsFor=/mnt/appdata
-
-  - path: /etc/docker/daemon.json
-    owner: root:root
-    permissions: '0644'
-    content: |
-      {
-        "max-concurrent-downloads": 24,
-        "max-concurrent-uploads": 8,
-        "data-root": "/mnt/appdata/docker"
-      }
-      
   # Unattended Upgrades
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     owner: root:root
@@ -138,16 +141,43 @@ write_files:
       Unattended-Upgrade::Origins-Pattern {
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
         "origin=Debian,codename=${distro_codename},label=Debian-Security";
+        "origin=Debian,codename=${distro_codename}";
       };
       Unattended-Upgrade::Remove-Unused-Dependencies "true";
       Unattended-Upgrade::Automatic-Reboot "false";
       Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
       Unattended-Upgrade::MinimalSteps "true";
 
-# Create a docker-compose file where you want it to live
+  # Make Docker wait for Appdata Mount
+  - path: /etc/systemd/system/docker.service.d/10-require-appdata.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      RequiresMountsFor=/mnt/appdata
+ 
+ # Change Docker defaults
+  - path: /etc/docker/daemon.json
+    owner: root:root
+    permissions: '0644'
+    content: |
+      {
+        "max-concurrent-downloads": 24,
+        "max-concurrent-uploads": 8,
+        "data-root": "/mnt/appdata/docker"
+      }
+
+  # Create a docker-compose file where you want it to live
   - path: /home/admin/apps/docker-compose.yml
     permissions: '0644'
     content: |
+      placeholder
+    
+  # Create a .env file where you want it to live
+  - path: /home/admin/apps/.env
+    permissions: '0600'
+    content: |
+      placeholder
 
   # Create swap
   - path: /etc/systemd/zram-generator.conf
@@ -158,12 +188,36 @@ write_files:
       zram-size = min(ram / 2, 512)
       compression-algorithm = zstd
       swap-priority = 150
-
+      
+ # Change Swappiness
   - path: /etc/sysctl.d/99-cloud-tuning.conf
     owner: root:root
     permissions: '0644'
     content: |
       vm.swappiness = 10
+      
+  # Dump Cloud init logs at end
+  - path: /var/lib/cloud/scripts/per-instance/99-dump-cloudinit-logs.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      install -d -o admin -g admin /home/admin/logs
+      {
+        journalctl -b -o short-iso --no-pager \
+          -u cloud-init-local -u cloud-init -u cloud-config -u cloud-final || true
+        echo "### /var/log/cloud-init.log"
+        [ -s /var/log/cloud-init.log ] && cat /var/log/cloud-init.log || echo "(missing)"
+        echo "### /var/log/cloud-init-output.log"
+        [ -s /var/log/cloud-init-output.log ] && cat /var/log/cloud-init-output.log || echo "(missing)"
+      } > /home/admin/logs/cloud-init-full.log
+      {
+        journalctl -b -o short-iso --no-pager -p warning \
+          -u cloud-init-local -u cloud-init -u cloud-config -u cloud-final || true
+        [ -s /var/log/cloud-init.log ] && grep -Ei "warning|error|critical|traceback|exception|failed" /var/log/cloud-init.log || true
+        [ -s /var/log/cloud-init-output.log ] && grep -Ei "warning|error|critical|traceback|exception|failed" /var/log/cloud-init-output.log || true
+      } > /home/admin/logs/cloud-init-errors.log
+      chown -R admin:admin /home/admin/logs
 
 # --- APT & packages ---
 package_update: true
@@ -185,34 +239,37 @@ packages:
   - docker-compose-plugin
   - unattended-upgrades
 
-# Grow root disk if the template disk is expanded later
+#  Auto Grow root disk if the template disk is expanded later (on reboot)
 growpart:
   mode: auto
 resize_rootfs: true
 
 runcmd:
-  - mkdir -p /mnt/appdata/docker
   # admin user setup
   - install -d -o admin -g admin /home/admin/apps
   - chown -R admin:admin /home/admin
   - chmod 700 /home/admin
   - chown -R admin:admin /home/admin/.ssh || true
+  # Docker
   - usermod -aG docker admin
+  - mkdir -p /mnt/appdata/docker
   # sys reload
   - systemctl daemon-reload
-  - systemctl enable --now dev-zram0.swap
-  - systemctl start systemd-zram-setup@zram0.service || true
+  - systemctl start dev-zram0.swap
   - sysctl -p /etc/sysctl.d/99-cloud-tuning.conf || sysctl --system
-  - systemctl enable --now qemu-guest-agent
+  - systemctl enable --now qemu-guest-agent.service
   - systemctl enable --now docker
   - systemctl enable --now unattended-upgrades
   - systemctl reload ssh || systemctl restart ssh
   - systemctl enable --now fstrim.timer
+  # Dump cloud-init Logs from first boot
+  - install -d -o admin -g admin /home/admin/logs
+  - chown -R admin:admin /home/admin/logs
   # housekeeping
   - apt -y autoremove --purge
   - apt -y autoclean
   - apt -y clean   
-  
+
 power_state:
   mode: poweroff            # or reboot / halt
   message: "cloud-init complete; shutting down for templating"
