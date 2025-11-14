@@ -23,7 +23,7 @@ I have spent a lot of time making sure this follows best practices for security 
 - Uses separate disk for appdata, mounted to /mnt/appdata.  The entire docker folder (/var/lib/docker/) is mounted to /mnt/appdata/docker.  Default is 16GB, you can grow it in proxmox if needed.
 - Mounts /mnt/appdata with with nodev for additional security
 - Installs systemd-zram-generator for swap (to reduce disk I/O)
-- Installs log2ban to monitor logs for intrusion attempts
+- Installs fail2ban to monitor logs for intrusion attempts
 - Hardens SSHD
 - Hardens Kernel Modules (May need to disable some if you use complex networking setups, multiple NIC's or VPN's)
 - Shuts down the VM after cloud-init is complete
@@ -272,7 +272,7 @@ sudo cloud-init schema --system --annotate
 ### Changelog:
 
 11-14-2025
-- Added log2ban
+- Added fail2ban
 - Kernel & SSH Hardening 
 
 11-12-2025
