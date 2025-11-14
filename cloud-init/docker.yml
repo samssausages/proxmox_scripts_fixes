@@ -4,7 +4,7 @@
 debug: false
 output:
   all: "| tee -a /var/log/cloud-init-output.log"
-final_message: "cloud-init finished after $UPTIME seconds"
+final_message: "cloud-init finished"
 
 # Let cloud-init set hostname using proxmox vm name.
 preserve_hostname: false
@@ -22,7 +22,7 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: true
     ssh_authorized_keys:
-      - ssh-ed25519 yourkey
+      - ssh-ed25519 Yourkey
 
 mounts:
   - [ "LABEL=APPDATA", "/mnt/appdata", "ext4", "defaults,noatime,nofail,x-systemd.growfs,nodev", "0", "2" ]
@@ -31,6 +31,7 @@ mounts:
 bootcmd:
   - mkdir -p /etc/apt/keyrings
   - mkdir -p /usr/share/keyrings
+  - mkdir -p /etc/systemd/journald.conf.d
   # for end of cloud-init log dump
   - mkdir -p /home/admin/logs
   # Auto Detect APPDATA disk and mount it
@@ -56,6 +57,64 @@ bootcmd:
     mount -L APPDATA /mnt/appdata || true
 
 write_files:
+  # Harden ssh
+  - path: /etc/ssh/sshd_config.d/99-harden.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      AuthenticationMethods publickey
+      KbdInteractiveAuthentication no
+      PermitUserEnvironment no
+      AllowAgentForwarding no
+      X11Forwarding no
+      PrintLastLog yes
+      MaxAuthTries 3
+      LoginGraceTime 30s
+      MaxSessions 5
+      MaxStartups 10:30:100
+
+  # Harden Kernel, mainly networking.  Won't work with complex routing setups & more than one NIC
+  - path: /etc/sysctl.d/20-hardening.conf
+    permissions: '0644'
+    content: |
+      kernel.kptr_restrict = 2
+      kernel.yama.ptrace_scope = 1
+      kernel.unprivileged_bpf_disabled = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.default.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.default.send_redirects = 0
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.tcp_syncookies = 1
+      net.ipv6.conf.all.accept_redirects = 0
+      net.ipv6.conf.default.accept_redirects = 0
+
+  # Fail2ban main local policy
+  - path: /etc/fail2ban/jail.local
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [DEFAULT]
+      bantime = 30m
+      findtime = 15m
+      maxretry = 5
+      bantime.increment = true
+      bantime.factor = 4
+      bantime.overalljails = true
+      bantime.rndtime = 10m
+      backend = systemd
+      banaction = nftables-multiport
+      banaction_allports = nftables-allports
+      ignoreip = 127.0.0.1/8 ::1
+
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd[mode=aggressive]
+
   # import docker key
   - path: /usr/share/keyrings/docker.asc
     owner: root:root
@@ -141,10 +200,12 @@ write_files:
       Unattended-Upgrade::Origins-Pattern {
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
         "origin=Debian,codename=${distro_codename},label=Debian-Security";
+        "origin=Debian,codename=${distro_codename}-updates";
         "origin=Debian,codename=${distro_codename}";
       };
       Unattended-Upgrade::Remove-Unused-Dependencies "true";
-      Unattended-Upgrade::Automatic-Reboot "false";
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "03:40";
       Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
       Unattended-Upgrade::MinimalSteps "true";
 
@@ -162,9 +223,16 @@ write_files:
     permissions: '0644'
     content: |
       {
+        "log-driver": "journald",
+        "log-opts": {
+          "tag": "docker/{{.Name}}",
+          "labels": "com.docker.compose.project,com.docker.compose.service",
+          "env": "NODE_ENV,ROLE"
+        },
         "max-concurrent-downloads": 24,
         "max-concurrent-uploads": 8,
-        "data-root": "/mnt/appdata/docker"
+        "data-root": "/mnt/appdata/docker",
+        "live-restore": true
       }
 
   # Create a docker-compose file where you want it to live
@@ -238,6 +306,7 @@ packages:
   - docker-buildx-plugin
   - docker-compose-plugin
   - unattended-upgrades
+  - fail2ban
 
 #  Auto Grow root disk if the template disk is expanded later (on reboot)
 growpart:
@@ -255,6 +324,7 @@ runcmd:
   - mkdir -p /mnt/appdata/docker
   # sys reload
   - systemctl daemon-reload
+  - systemctl restart systemd-journald
   - systemctl start dev-zram0.swap
   - sysctl -p /etc/sysctl.d/99-cloud-tuning.conf || sysctl --system
   - systemctl enable --now qemu-guest-agent.service

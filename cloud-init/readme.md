@@ -17,12 +17,15 @@ I have spent a lot of time making sure this follows best practices for security 
 - Sets some reasonable defaults
 - Disable Root Login
 - Disable Password Authentication (SSH Only! Add your SSH keys in the file)
-- Installs Unattended Upgrades (Critical only, no auto reboot)
+- Installs Unattended Upgrades (Stable Only, Reboots at 3:40am if needed)
 - Installs qemu-guest-agent
 - Installs cloud-guest-utils (To auto grow disk if you expand it later. Auto expands at boot)
 - Uses separate disk for appdata, mounted to /mnt/appdata.  The entire docker folder (/var/lib/docker/) is mounted to /mnt/appdata/docker.  Default is 16GB, you can grow it in proxmox if needed.
 - Mounts /mnt/appdata with with nodev for additional security
 - Installs systemd-zram-generator for swap (to reduce disk I/O)
+- Installs log2ban to monitor logs for intrusion attempts
+- Hardens SSHD
+- Hardens Kernel Modules (May need to disable some if you use complex networking setups, multiple NIC's or VPN's)
 - Shuts down the VM after cloud-init is complete
 - Dumps cloud-init log file at /home/admin/logs on first boot
 
@@ -267,6 +270,10 @@ sudo cloud-init schema --system --annotate
 - Your not using the proxmox mounted "snippet" folder
 
 ### Changelog:
+
+11-14-2025
+- Added log2ban
+- Kernel & SSH Hardening 
 
 11-12-2025
 - Made Appdata disk serial unique, generated & detectable by cloud-init

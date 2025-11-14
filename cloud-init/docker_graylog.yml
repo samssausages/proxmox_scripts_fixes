@@ -58,6 +58,61 @@ bootcmd:
     mount -L APPDATA /mnt/appdata || true
 
 write_files:
+  # Harden ssh
+  - path: /etc/ssh/sshd_config.d/99-harden.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      KbdInteractiveAuthentication no
+      PermitUserEnvironment no
+      AllowAgentForwarding no
+      X11Forwarding no
+      PrintLastLog yes
+      MaxAuthTries 3
+      LoginGraceTime 30s
+      MaxSessions 5
+      MaxStartups 10:30:100
+
+  # Harden Kernel, mainly networking.  Won't work with complex routing setups & more than one NIC
+  - path: /etc/sysctl.d/20-hardening.conf
+    permissions: '0644'
+    content: |
+      kernel.kptr_restrict = 2
+      kernel.yama.ptrace_scope = 1
+      kernel.unprivileged_bpf_disabled = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.default.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.default.send_redirects = 0
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.tcp_syncookies = 1
+      net.ipv6.conf.all.accept_redirects = 0
+      net.ipv6.conf.default.accept_redirects = 0
+
+  # Fail2ban main local policy
+  - path: /etc/fail2ban/jail.local
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [DEFAULT]
+      bantime = 30m
+      findtime = 15m
+      maxretry = 5
+      bantime.increment = true
+      bantime.factor = 4
+      bantime.overalljails = true
+      bantime.rndtime = 10m
+      backend = systemd
+      banaction = nftables-multiport
+      banaction_allports = nftables-allports
+      ignoreip = 127.0.0.1/8 ::1
+
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd[mode=aggressive]
+
   # import docker key
   - path: /usr/share/keyrings/docker.asc
     owner: root:root
@@ -189,10 +244,12 @@ write_files:
       Unattended-Upgrade::Origins-Pattern {
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
         "origin=Debian,codename=${distro_codename},label=Debian-Security";
+        "origin=Debian,codename=${distro_codename}-updates";
         "origin=Debian,codename=${distro_codename}";
       };
       Unattended-Upgrade::Remove-Unused-Dependencies "true";
-      Unattended-Upgrade::Automatic-Reboot "false";
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "03:40";
       Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
       Unattended-Upgrade::MinimalSteps "true";
 
@@ -294,6 +351,7 @@ packages:
   - docker-buildx-plugin
   - docker-compose-plugin
   - unattended-upgrades
+  - fail2ban
 
 #  Auto Grow root disk if the template disk is expanded later (on reboot)
 growpart:
