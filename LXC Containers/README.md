@@ -99,9 +99,7 @@ pct create "$VMID" "${TEMPLATE_STORAGE}:vztmpl/${CT_TEMPLATE}" \
   ${NAMESERVER:+--nameserver "$NAMESERVER"} \
   --unprivileged "$UNPRIVILEGED" \
   --features "$FEATURES" \
-  --ssh-public-keys "$SSH_KEY_FILE" \
-  --start 1 \
-  --onboot 1
+  --ssh-public-keys "$SSH_KEY_FILE"
 
 # Clean up temp ssh file
 rm -f "$SSH_KEY_FILE"
@@ -139,13 +137,13 @@ If using the external syslog version, update the config with your external syslo
 
 ```
 
-### 3. Log into LXC and Copy / Paste entire file contents of the config file into your LXC's CLI
+### 3. Log into LXC and Copy / Paste entire file contents of the lxc-bootstrap file directly into your LXC's CLI
 
 ### 4.  Use LXC as is!
 
 ### 5. (Optional)  Turn LXC into blank template!
 
-#### 5a. Strip identity
+Strip identity
 
 From inside the LXC:
 
@@ -160,12 +158,9 @@ sudo find /var/log -type f -delete || true
 sudo rm -f /root/.bash_history /home/admin/.bash_history 2>/dev/null || true
 
 ```
-
-#### 5b. Convert to Template
-
 Shutdown the LXC and convert it to a template in Proxmox
 
-### Done!
+Done!
 
 ### FAQ
 
