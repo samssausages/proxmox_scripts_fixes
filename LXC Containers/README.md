@@ -1,4 +1,4 @@
-# Cloud init, optimized for Debian 13
+# LXC Creation, optimized for Debian 13
 
 ## What is this?
 I made this so I could start a new LXC, configured and hardened, as quickly as possible.
