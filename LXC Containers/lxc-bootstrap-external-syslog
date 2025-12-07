@@ -1,0 +1,207 @@
+cat <<'EOF' >/root/ct-bootstrap.sh
+#!/bin/bash
+set -euo pipefail
+
+# --- basic dirs ---
+mkdir -p /etc/systemd/journald.conf.d
+mkdir -p /etc/systemd/system/rsyslog.service.d
+mkdir -p /run/rsyslog
+mkdir -p /mnt/appdata
+mkdir -p /etc/ssh/sshd_config.d
+mkdir -p /etc/fail2ban
+mkdir -p /etc/sudoers.d
+
+# --- timezone ---
+if command -v timedatectl >/dev/null 2>&1; then
+  timedatectl set-timezone America/Chicago || true
+else
+  echo "America/Chicago" >/etc/timezone
+  ln -sf /usr/share/zoneinfo/America/Chicago /etc/localtime
+fi
+
+# --- admin user ---
+if ! id admin >/dev/null 2>&1; then
+  adduser --disabled-password --gecos "Admin" admin
+fi
+usermod -aG adm,sudo admin
+
+install -d -o admin -g admin /home/admin/apps
+chown -R admin:admin /home/admin
+chmod 700 /home/admin
+chown -R admin:admin /home/admin/.ssh 2>/dev/null || true
+install -d -m 700 -o admin -g admin /home/admin/.ssh
+cp /root/.ssh/authorized_keys /home/admin/.ssh/authorized_keys
+chown admin:admin /home/admin/.ssh/authorized_keys
+chmod 600 /home/admin/.ssh/authorized_keys
+
+# --- SSH hardening ---
+cat <<'EOF_SSH' >/etc/ssh/sshd_config.d/99-harden.conf
+KbdInteractiveAuthentication no
+PermitUserEnvironment no
+AllowAgentForwarding no
+X11Forwarding no
+PrintLastLog yes
+MaxAuthTries 3
+LoginGraceTime 30s
+MaxSessions 5
+MaxStartups 10:30:100
+PermitRootLogin no
+PasswordAuthentication no
+EOF_SSH
+
+# --- regenerate SSH host keys on first boot if missing (for clones) ---
+cat <<'EOF_REGEN' >/etc/systemd/system/regenerate-ssh-host-keys.service
+[Unit]
+Description=Regenerate SSH host keys if missing
+Before=ssh.service
+ConditionPathExists=!/etc/ssh/ssh_host_rsa_key
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+
+[Install]
+WantedBy=multi-user.target
+EOF_REGEN
+
+systemctl enable regenerate-ssh-host-keys.service || true
+
+# --- sysctl hardening ---
+cat <<'EOF_SYSCTL' >/etc/sysctl.d/20-hardening.conf
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+EOF_SYSCTL
+
+# passwordless sudo for admin
+cat <<'EOF_SUDO' >/etc/sudoers.d/010-admin-nopasswd
+admin ALL=(ALL) NOPASSWD:ALL
+EOF_SUDO
+chmod 440 /etc/sudoers.d/010-admin-nopasswd
+
+# --- fail2ban policy ---
+cat <<'EOF_F2B' >/etc/fail2ban/jail.local
+[DEFAULT]
+bantime = 30m
+findtime = 15m
+maxretry = 5
+bantime.increment = true
+bantime.factor = 4
+bantime.overalljails = true
+bantime.rndtime = 10m
+backend = systemd
+banaction = dummy
+banaction_allports = dummy
+ignoreip = 127.0.0.1/8 ::1 10.1.100.100
+
+[sshd]
+enabled = true
+port = ssh
+filter = sshd[mode=aggressive]
+EOF_F2B
+
+# --- journald volatile ---
+cat <<'EOF_JOURNAL' >/etc/systemd/journald.conf.d/zz-forward-off.conf
+[Journal]
+Storage=volatile
+RuntimeMaxUse=128M
+ForwardToSyslog=no
+RateLimitIntervalSec=30s
+RateLimitBurst=5000
+EOF_JOURNAL
+
+# --- rsyslog ---
+cat <<'EOF_RSYS_OVERRIDE' >/etc/systemd/system/rsyslog.service.d/override.conf
+[Service]
+RuntimeDirectory=rsyslog
+RuntimeDirectoryMode=0755
+EOF_RSYS_OVERRIDE
+
+# --- rsyslog forwarder ---
+cat <<'EOF_RSYS' >/etc/rsyslog.d/01-graylog.conf
+global(workDirectory="/run/rsyslog")
+module(load="imjournal" StateFile="/run/rsyslog/imjournal.state")
+
+action(
+  type="omfwd"
+  target="10.1.100.50"
+  port="5140"
+  protocol="tcp"
+  template="RSYSLOG_SyslogProtocol23Format"
+  action.resumeRetryCount="-1"
+  action.resumeInterval="30"
+  queue.type="LinkedList"
+  queue.size="100000"
+  queue.dequeueBatchSize="1000"
+  queue.workerThreads="2"
+  queue.discardMark="90000"
+  queue.discardSeverity="7"
+)
+EOF_RSYS
+
+# --- unattended upgrades ---
+cat <<'EOF_AUTOUP' >/etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
+EOF_AUTOUP
+
+cat <<'EOF_UUPOL' >/etc/apt/apt.conf.d/52unattended-upgrades-local
+Unattended-Upgrade::Origins-Pattern {
+  "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+  "origin=Debian,codename=${distro_codename},label=Debian-Security";
+  "origin=Debian,codename=${distro_codename}-updates";
+  "origin=Debian,codename=${distro_codename}";
+};
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "03:40";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+Unattended-Upgrade::MinimalSteps "true";
+EOF_UUPOL
+
+# --- update apt ---
+apt-get update
+apt-get -y upgrade
+
+# Install packages
+apt-get install -y --no-install-recommends rsyslog unattended-upgrades fail2ban sudo
+
+# comment out imuxsock & imklog (we use imjournal instead)
+sed -i -E 's/^[[:space:]]*module\(load="imuxsock".*$/# &/; s/^[[:space:]]*module\(load="imklog".*$/# &/' /etc/rsyslog.conf || true
+
+# force logs volatile
+rm -rf /var/log/journal || true
+
+# apply sysctl
+sysctl -p /etc/sysctl.d/20-hardening.conf || true
+
+# enable reload services
+systemctl daemon-reload || true
+systemctl restart systemd-journald || true
+systemctl enable --now rsyslog || true
+systemctl enable --now unattended-upgrades || true
+systemctl reload ssh || systemctl restart ssh || true
+
+# disable fstrim
+systemctl disable --now fstrim.timer 2>/dev/null || true
+
+# housekeeping
+apt-get -y autoremove --purge
+apt-get -y autoclean
+apt-get -y clean
+
+echo "Bootstrap complete."
+EOF
+
+# make executable
+chmod +x /root/ct-bootstrap.sh
+
+# execute
+bash /root/ct-bootstrap.sh
