@@ -77,7 +77,7 @@ if ! ssh-keygen -l -f "$SSH_KEY_FILE" >/dev/null 2>&1; then
   exit 1
 fi
 
-FEATURES="nesting=1,keyctl=1"
+FEATURES="nesting=0,keyctl=0"
 UNPRIVILEGED=1
 
 # Download template
