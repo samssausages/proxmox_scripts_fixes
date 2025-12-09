@@ -4,15 +4,21 @@ Notes and references on items that may need a deeper understanding on "why" we t
 
 ## fstrim - Disable inside LXC?  How to run?
 
+Unpriviliged containers don't have access to the fstrim kernel modules.
+
 Not needed to run inside LXC, Official instructions are to run on Host.  Several forum posts from Proxmox Staff instructing not to run inside of LXC, but on the host itself.
 
 That makes sense to me, as LXC's don't use block devices.  Trim is usually handled by the block device owner, running it in the LXC would be redundant.
 
 Proxmox documentation instructing to run fstrim:
 https://pve.proxmox.com/pve-docs/pct.1.html
+https://pve.proxmox.com/pve-docs/pve-admin-guide.html#_trim_discard
+
 
 Proxmox staff forum post instructing to run on host:
 https://forum.proxmox.com/threads/fstrim-doesnt-work-in-containers-any-os-workarounds.54421/
 
 More recent post of proxmox staff saying not needed to run inside lxc:
 https://forum.proxmox.com/threads/lxc-disk-trimming-discard.175374/
+
+Further info on how trim works in relation to LXCs. i.e. who marks a block as "free" and who "trims" it.
