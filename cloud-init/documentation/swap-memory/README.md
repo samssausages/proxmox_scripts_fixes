@@ -1,3 +1,7 @@
+# References
+Good hardening info:
+https://github.com/ovh/debian-cis
+
 # Proxmox SWAP Setup instructions
 
 ## Check for existing swap
