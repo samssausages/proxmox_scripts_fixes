@@ -14,7 +14,7 @@ Script can also send to remote systems via SSH.
 
 ## Installation
 1. Download the script from this repository to a suitable directory on your server, e.g., `/usr/local/bin/backups/`.
-3. Make the script executable:
+2. Make the script executable:
 
    ```
    bash
