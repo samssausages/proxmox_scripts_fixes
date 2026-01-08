@@ -29,7 +29,7 @@ I have spent a lot of time making sure this follows best practices for security 
 - Shuts down the VM after cloud-init is complete
 - Dumps cloud-init log file at /home/admin/logs on first boot
 
-## Docker_graylog.yml
+## Docker_syslog.yml
 
 - Same as Docker.yml Plus:
 - Configures VM with rsyslog and forwards to log server using rsyslog (Make sure you set your syslog server IP in the file.)
