@@ -1,0 +1,227 @@
+#cloud-config
+
+# Enable Debug if you want detailed logs saved to your /home/logs dir (initial cloud-init boot only)
+debug: false
+output:
+  all: "| tee -a /var/log/cloud-init-output.log"
+final_message: "cloud-init finished"
+
+# Let cloud-init set hostname using proxmox vm name.
+preserve_hostname: false
+manage_etc_hosts: true
+timezone: America/Chicago
+
+ssh_pwauth: false        # PasswordAuthentication no
+disable_root: true       # PermitRootLogin no
+
+users:
+  - name: admin
+    gecos: Admin
+    groups: [adm,sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 Yourkey
+
+mounts:
+  - [ "LABEL=APPDATA", "/mnt/appdata", "ext4", "defaults,noatime,nofail,x-systemd.growfs,nodev", "0", "2" ]
+
+# Prep Steps:
+bootcmd:
+  - mkdir -p /etc/systemd/journald.conf.d
+  # for end of cloud-init log dump
+  - mkdir -p /home/admin/logs
+  # Auto Detect APPDATA disk and mount it
+  - |
+    set -eux
+
+    # Give udev a moment to create by-id links
+    udevadm settle || true
+
+    # Find the extra disk by WWN (fallback to scsi-3... form). Ignore partitions.
+    APP_DEV="$(ls -1 /dev/disk/by-id/wwn-0x2* 2>/dev/null | grep -v -- '-part[0-9]\+$' | head -n1 || true)"
+    [ -z "$APP_DEV" ] && APP_DEV="$(ls -1 /dev/disk/by-id/scsi-3* 2>/dev/null | grep -v -- '-part[0-9]\+$' | head -n1 || true)"
+    [ -z "$APP_DEV" ] && exit 0
+
+    DEV_REAL="$(readlink -f "$APP_DEV")"
+
+    FSTYPE="$(lsblk -no FSTYPE "$DEV_REAL" | head -n1 || true)"
+    if [ -z "$FSTYPE" ]; then
+      mkfs.ext4 -F -L APPDATA "$DEV_REAL"
+    fi
+
+    mkdir -p /mnt/appdata
+    mount -L APPDATA /mnt/appdata || true
+
+write_files:
+  # Harden ssh
+  - path: /etc/ssh/sshd_config.d/99-harden.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      AuthenticationMethods publickey
+      KbdInteractiveAuthentication no
+      PermitUserEnvironment no
+      AllowAgentForwarding no
+      X11Forwarding no
+      PrintLastLog yes
+      MaxAuthTries 3
+      LoginGraceTime 30s
+      MaxSessions 5
+      MaxStartups 10:30:100
+
+  # Harden Kernel, mainly networking.  Won't work with complex routing setups & more than one NIC
+  - path: /etc/sysctl.d/20-hardening.conf
+    permissions: '0644'
+    content: |
+      kernel.kptr_restrict = 2
+      kernel.yama.ptrace_scope = 1
+      kernel.unprivileged_bpf_disabled = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.default.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.default.send_redirects = 0
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.tcp_syncookies = 1
+      net.ipv6.conf.all.accept_redirects = 0
+      net.ipv6.conf.default.accept_redirects = 0
+
+  # Fail2ban main local policy add you workstation PC IP to ignoreip list
+  - path: /etc/fail2ban/jail.local
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [DEFAULT]
+      bantime = 30m
+      findtime = 15m
+      maxretry = 5
+      bantime.increment = true
+      bantime.factor = 4
+      bantime.overalljails = true
+      bantime.rndtime = 10m
+      backend = systemd
+      banaction = nftables-multiport
+      banaction_allports = nftables-allports
+      ignoreip = 127.0.0.1/8 ::1
+
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd[mode=aggressive]
+
+  # Unattended Upgrades
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+
+  # unattended-upgrades policy
+  - path: /etc/apt/apt.conf.d/52unattended-upgrades-local
+    owner: root:root
+    permissions: '0644'
+    content: |
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+        "origin=Debian,codename=${distro_codename}-updates";
+        "origin=Debian,codename=${distro_codename}";
+      };
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "true";
+      Unattended-Upgrade::Automatic-Reboot-Time "03:40";
+      Unattended-Upgrade::Automatic-Reboot-WithUsers "false";
+      Unattended-Upgrade::MinimalSteps "true";
+
+  # Create swap
+  - path: /etc/systemd/zram-generator.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [zram0]
+      zram-size = min(ram / 2, 512)
+      compression-algorithm = zstd
+      swap-priority = 150
+      
+ # Change Swappiness
+  - path: /etc/sysctl.d/99-cloud-tuning.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      vm.swappiness = 10
+      
+  # Dump Cloud init logs at end
+  - path: /var/lib/cloud/scripts/per-instance/99-dump-cloudinit-logs.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      install -d -o admin -g admin /home/admin/logs
+      {
+        journalctl -b -o short-iso --no-pager \
+          -u cloud-init-local -u cloud-init -u cloud-config -u cloud-final || true
+        echo "### /var/log/cloud-init.log"
+        [ -s /var/log/cloud-init.log ] && cat /var/log/cloud-init.log || echo "(missing)"
+        echo "### /var/log/cloud-init-output.log"
+        [ -s /var/log/cloud-init-output.log ] && cat /var/log/cloud-init-output.log || echo "(missing)"
+      } > /home/admin/logs/cloud-init-full.log
+      {
+        journalctl -b -o short-iso --no-pager -p warning \
+          -u cloud-init-local -u cloud-init -u cloud-config -u cloud-final || true
+        [ -s /var/log/cloud-init.log ] && grep -Ei "warning|error|critical|traceback|exception|failed" /var/log/cloud-init.log || true
+        [ -s /var/log/cloud-init-output.log ] && grep -Ei "warning|error|critical|traceback|exception|failed" /var/log/cloud-init-output.log || true
+      } > /home/admin/logs/cloud-init-errors.log
+      chown -R admin:admin /home/admin/logs
+
+# --- APT & packages ---
+package_update: true
+package_upgrade: true
+
+packages:
+  - qemu-guest-agent
+  - cloud-guest-utils
+  - systemd-zram-generator
+  - unattended-upgrades
+  - fail2ban
+  - nftables
+  - sudo
+
+#  Auto Grow root disk if the template disk is expanded later (on reboot)
+growpart:
+  mode: auto
+resize_rootfs: true
+
+runcmd:
+  # admin user setup
+  - install -d -o admin -g admin /home/admin/apps
+  - chown -R admin:admin /home/admin
+  - chmod 700 /home/admin
+  - chown -R admin:admin /home/admin/.ssh || true
+  # sys reload
+  - systemctl daemon-reload
+  - systemctl restart systemd-journald
+  - systemctl start dev-zram0.swap
+  - sysctl -p /etc/sysctl.d/99-cloud-tuning.conf || sysctl --system
+  - systemctl enable --now qemu-guest-agent.service
+  - systemctl enable --now unattended-upgrades
+  - systemctl enable --now fail2ban  
+  - systemctl reload ssh || systemctl restart ssh
+  - systemctl enable --now fstrim.timer
+  # Dump cloud-init Logs from first boot
+  - install -d -o admin -g admin /home/admin/logs
+  - chown -R admin:admin /home/admin/logs
+  # housekeeping
+  - apt -y autoremove --purge
+  - apt -y autoclean
+  - apt -y clean   
+
+power_state:
+  mode: poweroff            # or reboot / halt
+  message: "cloud-init complete; shutting down for templating"
+  delay: "+1"

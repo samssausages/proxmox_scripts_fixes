@@ -11,27 +11,38 @@ Simply add your docker-compose.yml file and go!
 
 I have spent a lot of time making sure this follows best practices for security and stability.  If you have suggestions on how to improve, let me know!
 
-## Docker.yml
+## deb_13_plain.yml
 
+  - Disable Root Login
+  - Disable Password Authentication (SSH Only! Add your SSH keys in the file)
+  - Installs Unattended Upgrades (Stable Only, Reboots at 3:40am if needed)
+  - Installs qemu-guest-agent
+  - Installs cloud-guest-utils (To auto grow disk if you expand it later. Auto expands at boot)
+  - Uses separate disk for appdata, mounted to /mnt/appdata.  The entire docker folder (/var/lib/docker/) is mounted to /mnt/appdata/docker.  Default is 16GB, you can grow it in proxmox if needed.
+  - Mounts /mnt/appdata with with nodev for additional security
+  - Installs systemd-zram-generator for swap (to reduce disk I/O)
+  - Installs fail2ban to monitor logs for intrusion attempts
+  - Hardens SSHD
+  - Hardens Kernel Modules (May need to disable some if you use complex networking setups, multiple NIC's or VPN's)
+  - Shuts down the VM after cloud-init is complete
+  - Dumps cloud-init log file at /home/admin/logs on first boot
+
+## deb_13_plain_syslog.yml
+
+  - Same as deb_13_plain.yml
+  - Configures VM with rsyslog and forwards to log server using rsyslog (Make sure you set your syslog server IP in the file.)
+  - To reduce disk I/O, persistent Local Logging is disabled.  I forward all logs to external syslog and keep local logs in memory only.  This means logs will be lost on reboot and will live on your syslog server only.
+
+## deb_13_docker.yml
+
+- Same as deb_13_plain.yml
 - Installs Docker
 - Sets some reasonable defaults
-- Disable Root Login
-- Disable Password Authentication (SSH Only! Add your SSH keys in the file)
-- Installs Unattended Upgrades (Stable Only, Reboots at 3:40am if needed)
-- Installs qemu-guest-agent
-- Installs cloud-guest-utils (To auto grow disk if you expand it later. Auto expands at boot)
 - Uses separate disk for appdata, mounted to /mnt/appdata.  The entire docker folder (/var/lib/docker/) is mounted to /mnt/appdata/docker.  Default is 16GB, you can grow it in proxmox if needed.
-- Mounts /mnt/appdata with with nodev for additional security
-- Installs systemd-zram-generator for swap (to reduce disk I/O)
-- Installs fail2ban to monitor logs for intrusion attempts
-- Hardens SSHD
-- Hardens Kernel Modules (May need to disable some if you use complex networking setups, multiple NIC's or VPN's)
-- Shuts down the VM after cloud-init is complete
-- Dumps cloud-init log file at /home/admin/logs on first boot
 
-## Docker_syslog.yml
+## deb_13_docker_syslog.yml
 
-- Same as Docker.yml Plus:
+- Same as deb_13_docker.yml Plus:
 - Configures VM with rsyslog and forwards to log server using rsyslog (Make sure you set your syslog server IP in the file.)
 - To reduce disk I/O, persistent Local Logging is disabled.  I forward all logs to external syslog and keep local logs in memory only.  This means logs will be lost on reboot and will live on your syslog server only.
 
@@ -269,7 +280,18 @@ sudo cloud-init schema --system --annotate
 - Proxmox storage name doesn't match what is in the commands
 - Your not using the proxmox mounted "snippet" folder
 
+### Notes & Special Considerations:
+
+  - TLDR: When updating the OS & Docker Containers, also run "docker images prune" to keep disk from filling up.
+  The OS disk is only 8gb by default.  This is usually fine, but if you run docker then old images will eventually pile up.  I run updates using an ansible playbook, and at the time of update I also tell docker to prune dangling images.  You can do so with a "docker images prune" command, after your update.
+
 ### Changelog:
+
+1-17-2026
+- added plain versions that don't install docker and just harden Debian 13
+- Made APPDATA disk creation process more durable to avoid install conflicts
+- Made sure fail2ban is enabled & starts
+- Added sudo & nftables package in case it isn't part of the base image
 
 11-14-2025
 - Added fail2ban

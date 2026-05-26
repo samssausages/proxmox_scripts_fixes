@@ -307,6 +307,9 @@ packages:
   - docker-compose-plugin
   - unattended-upgrades
   - fail2ban
+  - nftables
+  - sudo
+
 
 #  Auto Grow root disk if the template disk is expanded later (on reboot)
 growpart:
@@ -330,6 +333,7 @@ runcmd:
   - systemctl enable --now qemu-guest-agent.service
   - systemctl enable --now docker
   - systemctl enable --now unattended-upgrades
+  - systemctl enable --now fail2ban
   - systemctl reload ssh || systemctl restart ssh
   - systemctl enable --now fstrim.timer
   # Dump cloud-init Logs from first boot
