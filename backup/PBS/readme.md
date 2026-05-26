@@ -13,7 +13,7 @@ Create new user account in PBS that only has the "DatastoreBackup" Role.
   2.  Permissions > Add > Path of your datastore & User & Role = DatastoreBackup
 
 Get connection information.
-  1.  Datastore > Your Datastore > Show Connection Information > Note Fingerprint, server & user info.
+  1.  Datastore > Your Datastore > Show Connection Information > Note Fingerprint & Server info
   2.  If using encryption, create key or use keyfile. (see docs)
 
 ## Raw syntax example used to run the backup.
