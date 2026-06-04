@@ -171,7 +171,7 @@ apt-get update
 apt-get -y upgrade
 
 # Install packages
-apt-get install -y --no-install-recommends rsyslog unattended-upgrades fail2ban sudo
+apt-get install -y --no-install-recommends rsyslog unattended-upgrades fail2ban sudo tmux
 
 # comment out imuxsock & imklog (we use imjournal instead)
 sed -i -E 's/^[[:space:]]*module\(load="imuxsock".*$/# &/; s/^[[:space:]]*module\(load="imklog".*$/# &/' /etc/rsyslog.conf || true

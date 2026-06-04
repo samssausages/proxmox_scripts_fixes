@@ -166,3 +166,8 @@ Done!
 
  - The Proxmox storage isn't correctly setup to accept CT Templates.  i.e. local, local-zfs etc.  It's not a path, it's the name of the proxmox storage.
  - After installing inside the lxc, root will be disabled.  You will need to login with "admin".
+
+
+# Changelog:
+6-4-2026
+- added tmux

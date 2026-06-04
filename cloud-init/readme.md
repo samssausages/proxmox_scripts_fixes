@@ -287,6 +287,9 @@ sudo cloud-init schema --system --annotate
 
 ### Changelog:
 
+6-4-2026
+- added tmux
+
 1-17-2026
 - added plain versions that don't install docker and just harden Debian 13
 - Made APPDATA disk creation process more durable to avoid install conflicts

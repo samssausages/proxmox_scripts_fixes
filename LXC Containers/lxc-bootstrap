@@ -129,7 +129,7 @@ apt-get update
 apt-get -y upgrade
 
 # Install packages
-apt-get install -y --no-install-recommends unattended-upgrades fail2ban sudo
+apt-get install -y --no-install-recommends unattended-upgrades fail2ban sudo tmux
 
 # apply sysctl
 sysctl -p /etc/sysctl.d/20-hardening.conf || true

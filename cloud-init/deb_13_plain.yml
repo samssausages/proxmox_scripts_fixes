@@ -191,6 +191,7 @@ packages:
   - fail2ban
   - nftables
   - sudo
+  - tmux
 
 #  Auto Grow root disk if the template disk is expanded later (on reboot)
 growpart:
